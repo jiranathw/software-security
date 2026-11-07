@@ -1,15 +1,13 @@
-"""
-Tiny sample web app for Week 1 threat modeling.
-You will NOT exploit this in Week 1 — you will draw a data-flow diagram
-and apply STRIDE to its components (web client, app, SQLite DB, /upload).
-"""
 from flask import Flask, request, jsonify, send_from_directory
-import sqlite3, os
+import sqlite3, os, uuid
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 DB = "notes.db"
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024  # 5 MB
+ALLOWED_EXT = {".txt", ".png", ".jpg", ".pdf"}
 
 def init_db():
     con = sqlite3.connect(DB)
@@ -30,9 +28,19 @@ def notes():
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    f = request.files["file"]
-    f.save(os.path.join(UPLOAD_DIR, f.filename))
-    return {"saved": f.filename}
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return {"error": "no file"}, 400
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ALLOWED_EXT:
+        return {"error": "file type not allowed"}, 400
+    stored = uuid.uuid4().hex + ext          # server-chosen name: no client string in the path
+    base = os.path.realpath(UPLOAD_DIR)
+    path = os.path.realpath(os.path.join(base, stored))
+    if os.path.commonpath([base, path]) != base:
+        return {"error": "bad path"}, 400
+    f.save(path)
+    return {"saved": stored}
 
 @app.route("/files/<name>")
 def files(name):
